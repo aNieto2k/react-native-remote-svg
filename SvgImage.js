@@ -1,8 +1,8 @@
 // @flow
 
 import React, { Component } from 'react';
-import { View, Platform } from 'react-native';
-import { WebView } from 'react-native-webview';
+import { View, WebView } from 'react-native';
+import RNFetchBlob from "rn-fetch-blob";
 
 const firstHtml =
   '<html><head><style>html, body { margin:0; padding:0; overflow:hidden; background-color: transparent; } svg { position:fixed; top:0; left:0; height:100%; width:100% }</style></head><body>';
@@ -14,37 +14,41 @@ class SvgImage extends Component {
     this.doFetch(this.props);
   }
   componentWillReceiveProps(nextProps) {
-    const prevUri = this.props.source && this.props.source.uri;
-    const nextUri = nextProps.source && nextProps.source.uri;
-
-    if (nextUri && prevUri !== nextUri) {
-      this.doFetch(nextProps);
-    }
+    this.doFetch(nextProps);
   }
-  doFetch = async props => {
+  doFetch = props => {
     let uri = props.source && props.source.uri;
     if (uri) {
-      props.onLoadStart && props.onLoadStart();
       if (uri.match(/^data:image\/svg/)) {
         const index = uri.indexOf('<svg');
         this.setState({ fetchingUrl: uri, svgContent: uri.slice(index) });
       } else {
-        try {
-          const res = await fetch(uri);
-          const text = await res.text();
-          this.setState({ fetchingUrl: uri, svgContent: text });
-        } catch (err) {
-          console.error('got error', err);
-        }
+        console.log('fetching', uri);
+        if (uri.startsWith('file://')) {
+          const localUri = uri.replace('file://', '');
+          RNFetchBlob.fs.readFile(localUri, 'utf-8')
+            .then((localContent) => {
+                if (localContent) {
+                  this.setState({ fetchingUrl: uri, svgContent: localContent });
+                }  
+            })
+        } else {
+          fetch(uri)
+          .then(res => res.text())
+          .then(text => {
+            this.setState({ fetchingUrl: uri, svgContent: text });
+          })
+          .catch(err => {
+            console.error('got error', err);
+          });
+        }        
       }
-      props.onLoadEnd && props.onLoadEnd();
     }
   };
   render() {
     const props = this.props;
     const { svgContent } = this.state;
     if (svgContent) {
-      const html = `${firstHtml}${svgContent}${lastHtml}`;
       return (
         <View pointerEvents="none" style={[props.style, props.containerStyle]}>
           <WebView
@@ -59,9 +63,7 @@ class SvgImage extends Component {
               props.style,
             ]}
             scrollEnabled={false}
-            source={{
-              html: Platform.OS === 'ios' ? html : encodeURIComponent(html),
-            }}
+            source={{ html: `${firstHtml}${svgContent}${lastHtml}` }}
           />
         </View>
       );
